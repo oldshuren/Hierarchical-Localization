@@ -38,7 +38,7 @@ confs = {
 
 
 @torch.no_grad()
-def main(conf, pairs, features, export_dir, query_features=None,exhaustive=False):
+def main(conf, pairs, features, export_dir, query_features=None, output_dir=None, exhaustive=False):
     logging.info('Matching local features with configuration:'
                  f'\n{pprint.pformat(conf)}')
 
@@ -80,7 +80,10 @@ def main(conf, pairs, features, export_dir, query_features=None,exhaustive=False
     model = Model(conf['model']).eval().to(device)
 
     match_name = f'{features}_{conf["output"]}_{pairs_name}'
-    match_path = Path(export_dir, match_name+'.h5')
+    if output_dir is None:
+        output_dir = export_dir
+    match_path = Path(output_dir, match_name+'.h5')
+    match_path.parent.mkdir(exist_ok=True, parents=True)
     match_file = h5py.File(str(match_path), 'a')
 
     matched = set()
@@ -124,6 +127,7 @@ def main(conf, pairs, features, export_dir, query_features=None,exhaustive=False
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--export_dir', type=Path, required=True)
+    parser.add_argument('--output_dir', type=Path, required=False)
     parser.add_argument('--features', type=str,
                         default='feats-superpoint-n4096-r1024')
     parser.add_argument('--query_features', type=Path, required=False)
@@ -135,4 +139,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         confs[args.conf], args.pairs, args.features,args.export_dir,
-        query_features=args.query_features, exhaustive=args.exhaustive)
+        query_features=args.query_features, output_dir=args.output_dir, exhaustive=args.exhaustive)
