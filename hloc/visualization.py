@@ -69,9 +69,12 @@ def visualize_sfm_2d(sfm_model, image_dir, color_by='visibility',
             fontsize=5, va='bottom', ha='left', color='w')
 
 
-def visualize_loc(results, image_dir, sfm_model=None, top_k_db=2,
+def visualize_loc(results, image_dir, db_image_dir=None, sfm_model=None, top_k_db=2,
                   selected=[], n=1, seed=0, prefix=None, dpi=75):
     assert image_dir.exists()
+    if db_image_dir is None:
+        db_image_dir = image_dir
+    assert db_image_dir.exists()
 
     with open(str(results)+'_logs.pkl', 'rb') as f:
         logs = pickle.load(f)
@@ -135,7 +138,7 @@ def visualize_loc(results, image_dir, sfm_model=None, top_k_db=2,
                 kp_db = loc['keypoints_db'][loc['indices_db'] == db_idx]
                 inliers_db = inliers[loc['indices_db'] == db_idx]
 
-            db_image = read_image(image_dir / db_name)
+            db_image = read_image(db_image_dir / db_name)
             color = cm_RdGn(inliers_db).tolist()
             text = f'inliers: {sum(inliers_db)}/{len(inliers_db)}'
 
