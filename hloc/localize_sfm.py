@@ -57,17 +57,19 @@ def pose_from_cluster(qname, qinfo, db_ids, db_images, points3D,
         points3D_ids = db_images[db_id].point3D_ids
 
         pair = names_to_pair(qname, db_name)
-        matches = match_file[pair]['matches0'].__array__()
-        valid = np.where(matches > -1)[0]
-        valid = valid[points3D_ids[matches[valid]] != -1]
-        num_matches += len(valid)
+        matches = match_file.get(pair)
+        if matches is not None:
+            matches = matches['matches0'].__array__()
+            valid = np.where(matches > -1)[0]
+            valid = valid[points3D_ids[matches[valid]] != -1]
+            num_matches += len(valid)
 
-        for idx in valid:
-            id_3D = points3D_ids[matches[idx]]
-            kp_idx_to_3D_to_db[idx][id_3D].append(i)
-            # avoid duplicate observations
-            if id_3D not in kp_idx_to_3D[idx]:
-                kp_idx_to_3D[idx].append(id_3D)
+            for idx in valid:
+                id_3D = points3D_ids[matches[idx]]
+                kp_idx_to_3D_to_db[idx][id_3D].append(i)
+                # avoid duplicate observations
+                if id_3D not in kp_idx_to_3D[idx]:
+                    kp_idx_to_3D[idx].append(id_3D)
 
     idxs = list(kp_idx_to_3D.keys())
     mkp_idxs = [i for i in idxs for _ in kp_idx_to_3D[i]]
@@ -167,8 +169,10 @@ def main(reference_sfm, queries, retrieval, features, matches, results,
             if ret['success']:
                 poses[qname] = (ret['qvec'], ret['tvec'])
             else:
-                closest = db_images[db_ids[0]]
-                poses[qname] = (closest.qvec, closest.tvec)
+                if len(db_ids) > 0:
+                    closest = db_images.get(db_ids[0])
+                    if closest is not None:
+                        poses[qname] = (closest.qvec, closest.tvec)
             logs['loc'][qname] = {
                 'db': db_ids,
                 'PnP_ret': ret,
@@ -182,12 +186,15 @@ def main(reference_sfm, queries, retrieval, features, matches, results,
     logging.info(f'Localized {len(poses)} / {len(queries)} images.')
     logging.info(f'Writing poses to {results}...')
     with open(results, 'w') as f:
+        cnt = 1
         for q in poses:
             qvec, tvec = poses[q]
             qvec = ' '.join(map(str, qvec))
             tvec = ' '.join(map(str, tvec))
             name = q.split('/')[-1]
-            f.write(f'{name} {qvec} {tvec}\n')
+            # make it look like colmap model text format
+            f.write(f'{cnt} {qvec} {tvec} 100 {name}\n20 30 -1\n')
+            cnt += 1
 
     logs_path = f'{results}_logs.pkl'
     logging.info(f'Writing logs to {logs_path}...')
