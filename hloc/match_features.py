@@ -38,7 +38,7 @@ confs = {
 
 
 @torch.no_grad()
-def main(conf, pairs, features, export_dir, exhaustive=False):
+def main(conf, pairs, features, export_dir, query_features=None,exhaustive=False):
     logging.info('Matching local features with configuration:'
                  f'\n{pprint.pformat(conf)}')
 
@@ -46,6 +46,14 @@ def main(conf, pairs, features, export_dir, exhaustive=False):
     assert feature_path.exists(), feature_path
     feature_file = h5py.File(str(feature_path), 'r')
 
+    if query_features is not None:
+        logging.info(f'Using query_features {query_features}')
+    else:
+        logging.info('No query_features')
+        query_features = feature_path
+    assert query_features.exists(), query_features
+    query_feature_file = h5py.File(str(query_features), 'r')
+        
     pairs_name = pairs.stem
     if not exhaustive:
         assert pairs.exists(), pairs
@@ -86,7 +94,7 @@ def main(conf, pairs, features, export_dir, exhaustive=False):
             continue
 
         data = {}
-        feats0, feats1 = feature_file[name0], feature_file[name1]
+        feats0, feats1 = query_feature_file[name0], feature_file[name1]
         for k in feats1.keys():
             data[k+'0'] = feats0[k].__array__()
         for k in feats1.keys():
@@ -118,11 +126,13 @@ if __name__ == '__main__':
     parser.add_argument('--export_dir', type=Path, required=True)
     parser.add_argument('--features', type=str,
                         default='feats-superpoint-n4096-r1024')
+    parser.add_argument('--query_features', type=Path, required=False)
+
     parser.add_argument('--pairs', type=Path, required=True)
     parser.add_argument('--conf', type=str, default='superglue',
                         choices=list(confs.keys()))
     parser.add_argument('--exhaustive', action='store_true')
     args = parser.parse_args()
     main(
-        confs[args.conf], args.pairs, args.features, args.export_dir,
-        exhaustive=args.exhaustive)
+        confs[args.conf], args.pairs, args.features,args.export_dir,
+        query_features=args.query_features, exhaustive=args.exhaustive)
