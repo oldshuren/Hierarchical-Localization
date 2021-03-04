@@ -64,7 +64,7 @@ def get_image_ids(database_path):
 
 
 def run_reconstruction(colmap_path, model_path, database_path, image_dir,
-                       min_num_matches=None):
+                       use_pba=False, min_num_matches=None):
     logging.info('Running the 3D reconstruction...')
     model_path.mkdir(exist_ok=True)
 
@@ -76,6 +76,8 @@ def run_reconstruction(colmap_path, model_path, database_path, image_dir,
         '--Mapper.num_threads', str(min(multiprocessing.cpu_count(), 16))]
     if min_num_matches:
         cmd += ['--Mapper.min_num_matches', str(min_num_matches)]
+    if use_pba:
+        cmd += ['--Mapper.ba_global_use_pba', 'true']
     logging.info(' '.join(cmd))
     ret = subprocess.call(cmd)
     if ret != 0:
@@ -124,6 +126,7 @@ def run_reconstruction(colmap_path, model_path, database_path, image_dir,
 def main(sfm_dir, image_dir, pairs, features, matches,
          colmap_path='colmap', single_camera=False,
          skip_geometric_verification=False,
+         use_pba=False,
          min_match_score=None, min_num_matches=None):
 
     assert features.exists(), features
@@ -145,7 +148,7 @@ def main(sfm_dir, image_dir, pairs, features, matches,
     if not skip_geometric_verification:
         geometric_verification(colmap_path, database, pairs)
     stats = run_reconstruction(
-        colmap_path, models, database, image_dir, min_num_matches)
+        colmap_path, models, database, image_dir, use_pba=use_pba, min_num_matches=min_num_matches)
     stats['num_input_images'] = len(image_ids)
     logging.info(f'Statistics:\n{pprint.pformat(stats)}')
 
@@ -160,6 +163,8 @@ if __name__ == '__main__':
     parser.add_argument('--matches', type=Path, required=True)
 
     parser.add_argument('--colmap_path', type=Path, default='colmap')
+
+    parser.add_argument('--use_pba', action='store_true')
 
     parser.add_argument('--single_camera', action='store_true')
     parser.add_argument('--skip_geometric_verification', action='store_true')
