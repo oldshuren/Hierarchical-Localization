@@ -41,6 +41,7 @@ do
 	-s | --sfm_workspace)   sfm_workspace="$2"     ; shift 2  ;;
 	-n | --num_matched)   num_matched="$2"     ; shift 2  ;;
 	-c | --camera_intrinsics)   camera_intrinsics="$2"     ; shift 2  ;;
+	-o | --output)   output="$2"     ; shift 2  ;;
 	--extractor)   extractor="$2"     ; shift 2  ;;
 	--matcher)   matcher="$2"     ; shift 2  ;;
 	--feature_output)   feature_output="$2"     ; shift 2  ;;
