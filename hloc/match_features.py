@@ -38,11 +38,14 @@ confs = {
 
 
 @torch.no_grad()
-def main(conf, pairs, features, export_dir, query_features=None, output_dir=None, exhaustive=False):
+def main(conf, pairs, features, export_dir, db_features=None, query_features=None, output_dir=None, exhaustive=False):
     logging.info('Matching local features with configuration:'
                  f'\n{pprint.pformat(conf)}')
 
-    feature_path = Path(export_dir, features+'.h5')
+    if db_features:
+        feature_path = db_features
+    else:
+        feature_path = Path(export_dir, features+'.h5')
     assert feature_path.exists(), feature_path
     feature_file = h5py.File(str(feature_path), 'r')
 
@@ -53,7 +56,7 @@ def main(conf, pairs, features, export_dir, query_features=None, output_dir=None
         query_features = feature_path
     assert query_features.exists(), query_features
     query_feature_file = h5py.File(str(query_features), 'r')
-        
+
     pairs_name = pairs.stem
     if not exhaustive:
         assert pairs.exists(), pairs
@@ -130,6 +133,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', type=Path, required=False)
     parser.add_argument('--features', type=str,
                         default='feats-superpoint-n4096-r1024')
+    parser.add_argument('--db_features', type=Path, required=False)
     parser.add_argument('--query_features', type=Path, required=False)
 
     parser.add_argument('--pairs', type=Path, required=True)
@@ -139,4 +143,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         confs[args.conf], args.pairs, args.features,args.export_dir,
-        query_features=args.query_features, output_dir=args.output_dir, exhaustive=args.exhaustive)
+        db_features=args.db_features, query_features=args.query_features, output_dir=args.output_dir, exhaustive=args.exhaustive)
