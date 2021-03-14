@@ -11,7 +11,7 @@ parser.add_argument('--images', type=Path, required=True)
 parser.add_argument('--outputs', type=Path, required=True)
 parser.add_argument('--sfm_pairs', type=Path, required=False)
 parser.add_argument('--use_pba', action='store_true')
-parser.add_argument('--extractor', type=str, default='superpoint_inloc', choices=['superpoint_inloc', 'superpoint_aachen', 'd2net-ss'])
+parser.add_argument('--extractor', type=str, default='superpoint_inloc', choices=['superpoint_inloc', 'superpoint_aachen', 'd2net-ss', 'hfnet_superpoint'])
 parser.add_argument('--matcher', type=str, default='superglue', choices=['superglue', 'NN'])
 parser.add_argument('--matcher_batch', type=int)
 
