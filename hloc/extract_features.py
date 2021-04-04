@@ -129,6 +129,32 @@ class ImageDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.paths)
 
+class FeatureExtractor(object):
+    def __init__(self, conf):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        Model = dynamic_load(extractors, conf['model']['name'])
+        self.model = Model(conf['model']).eval().to(self.device)
+
+    def extract(self, image):
+        image = image.astype(np.float32)
+        size = image.shape[:2][::-1]
+        image = image.transpose((2, 0, 1))  # HxWxC to CxHxW
+        image = image / 255.
+
+        data = {
+            'image': image,
+            'original_size': np.array(size),
+        }
+        pred = model(map_tensor(data, lambda x: x.to(self.device)))
+        pred = {k: v[0].cpu().numpy() for k, v in pred.items()}
+
+        pred['image_size'] = original_size = data['original_size'][0].numpy()
+        if 'keypoints' in pred:
+            size = np.array(data['image'].shape[-2:][::-1])
+            scales = (original_size / size).astype(np.float32)
+            pred['keypoints'] = (pred['keypoints'] + .5) * scales[None] - .5
+
+        return pred
 
 @torch.no_grad()
 def main(conf, image_dir, export_dir, as_half=False):

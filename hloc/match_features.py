@@ -36,6 +36,11 @@ confs = {
     }
 }
 
+def get_model(conf):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    Model = dynamic_load(matchers, conf['model']['name'])
+    model = Model(conf['model']).eval().to(device)
+    return model
 
 @torch.no_grad()
 def main(conf, pairs, features, export_dir, db_features=None, query_features=None, output_dir=None, exhaustive=False):
