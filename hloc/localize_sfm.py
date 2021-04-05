@@ -91,6 +91,7 @@ def pose_from_cluster_with_feature(query_feature, qinfo, db_ids, db_images, poin
     }
     ret = pycolmap.absolute_pose_estimation(mkpq, mp3d, cfg, thresh)
     ret['cfg'] = cfg
+    ret['num_matches'] = num_matches
     return ret, mkpq, mp3d, mp3d_ids, num_matches, (mkp_idxs, mkp_to_3D_to_db)
 
 def pose_from_cluster(qname, qinfo, db_ids, db_images, points3D,
@@ -167,8 +168,7 @@ class SfMLocalizer(object):
                 continue
             db_ids.append(self.db_name_to_id[n])
 
-        pose = None
-        ret = None
+        ret = {'success':False}
         if self.covisibility_clustering:
             clusters = do_covisibility_clustering(db_ids, self.db_images, self.points3D)
             best_inliers = 0
@@ -192,22 +192,19 @@ class SfMLocalizer(object):
             # logging.info(f'# inliers: {best_inliers}')
             if best_cluster is not None:
                 ret = logs_clusters[best_cluster]['PnP_ret']
-                pose = (ret['qvec'], ret['tvec'])
         else:
             ret, mkpq, mp3d, mp3d_ids, num_matches, map_ = pose_from_cluster_with_feature(
                 query_feature, camera_info, db_ids, self.db_images, self.points3D,
                 matched_features, thresh=self.ransac_thresh)
             # logging.info(f'# inliers: {ret["num_inliers"]}')
 
-            if ret['success']:
-                pose = (ret['qvec'], ret['tvec'])
-            else:
-                if len(db_ids) > 0:
-                    closest = db_images.get(db_ids[0])
-                    if closest is not None:
-                        pose = (closest.qvec, closest.tvec)
+        if not ret['success']:
+            if len(db_ids) > 0:
+                closest = self.db_images.get(db_ids[0])
+                if closest is not None:
+                    ret['closest'] = {'qvec':closest.qvec, 'tvec':closest.tvec}
 
-        return pose, ret
+        return ret
 
 def main(reference_sfm, queries, retrieval, features, matches, results,
          ransac_thresh=12, covisibility_clustering=False):
