@@ -15,6 +15,7 @@ parser.add_argument('--single_camera', action='store_true')
 parser.add_argument('--extractor', type=str, default='superpoint_inloc', choices=['superpoint_inloc', 'superpoint_aachen', 'd2net-ss', 'hfnet_superpoint'])
 parser.add_argument('--matcher', type=str, default='superglue', choices=['superglue', 'NN'])
 parser.add_argument('--matcher_batch', type=int)
+parser.add_argument('--min_match_score', type=float)
 
 # skip option
 parser.add_argument('--skip_extractor', action='store_true')
@@ -72,6 +73,7 @@ reconstruction.main(
     outputs / feature_file,
     outputs / match_file,
     single_camera=args.single_camera,
+    min_match_score=args.min_match_score,
     use_pba=args.use_pba
 )
 
