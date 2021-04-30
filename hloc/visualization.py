@@ -4,6 +4,7 @@ import random
 import cv2
 import numpy as np
 import pickle
+import h5py
 
 from .utils.read_write_model import read_images_binary, read_points3d_binary
 from .utils.viz import plot_images, plot_keypoints, plot_matches, cm_RdGn
@@ -155,3 +156,52 @@ def visualize_loc(results, image_dir, db_image_dir=None, sfm_model=None, top_k_d
             fig.text(
                 0.01, 0.01, db_name, transform=fig.axes[1].transAxes,
                 fontsize=5, va='bottom', ha='left', color='w')
+
+def visualize_match(image_dir, match_file, feat_file, num=10, image_suffix='.png', selected=None, seed=0, dpi=75):
+    assert image_dir.exists()
+
+    match_db = h5py.File(match_file, 'r')
+    matched_pairs = match_db.keys()
+    feat_db = h5py.File(feat_file, 'r')
+
+    if not selected:
+        if num > len(matched_pairs):
+            num = len(matched_pairs)
+        matches_to_vis = random.Random(seed).sample(matched_pairs, num)
+    else:
+        matches_to_vis = [x for x in matched_pairs if x.startswith(selected)]
+
+    # speed matched pairs to two image
+    for k in matches_to_vis:
+        f0 = k.split(image_suffix+'_')[0]+image_suffix
+        f1 = k.split(image_suffix+'_')[1]
+
+        image0 = read_image(image_dir / f0)
+        image1 = read_image(image_dir / f1)
+
+        match_item =  match_db[k]
+        matches = match_item['matches0'][()]
+        matching_score = match_item['matching_scores0'][()]
+
+        kpts0 = feat_db[f0]['keypoints'][()]
+        kpts1 = feat_db[f1]['keypoints'][()]
+
+        valid = matches > -1
+        mkpts0 = kpts0[valid]
+        mkpts1 = kpts1[matches[valid]]
+        scores = matching_score[valid]
+        color = cm_RdGn(scores).tolist()
+        plot_images([image0, image1], dpi=dpi)
+        plot_matches(mkpts0, mkpts1, color, a=0.1)
+        fig = plt.gcf()
+        text = f'{len(mkpts0)}/{len(kpts0)}'
+        fig.text(
+            0.01, 0.99, text, transform=fig.axes[0].transAxes,
+            fontsize=15, va='top', ha='left', color='k',
+            bbox=dict(fc=(1, 1, 1, 0.5), edgecolor=(0, 0, 0, 0)))
+        fig.text(
+            0.01, 0.01, f0, transform=fig.axes[0].transAxes,
+            fontsize=15, va='bottom', ha='left', color='w')
+        fig.text(
+            0.01, 0.01, f1, transform=fig.axes[1].transAxes,
+            fontsize=15, va='bottom', ha='left', color='w')
