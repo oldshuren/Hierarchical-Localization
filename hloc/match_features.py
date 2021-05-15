@@ -44,23 +44,77 @@ def get_model(conf):
     return model
 
 @torch.no_grad()
-def best_match(conf, global_feature_path, feature_path, match_output_path, num_match_required=10, max_try=None,
-              pair_file_path=None, match_sequential=False, sample_list=None, min_match_score=0.85, min_valid_ratio=0.09):
+def do_match (name0, name1, pairs, matched, num_matches_found, model, match_file, feature_file, query_feature_file, min_match_score, min_valid_ratio):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    pair = names_to_pair(name0, name1)
+
+    # Avoid to recompute duplicates to save time
+    #if len({(name0, name1), (name1, name0)} & matched) or pair in match_file:
+    if pair in match_file:
+        return num_matches_found
+    data = {}
+    feats0, feats1 = query_feature_file[name0], feature_file[name1]
+    for k in feats1.keys():
+        data[k+'0'] = feats0[k].__array__()
+    for k in feats1.keys():
+        data[k+'1'] = feats1[k].__array__()
+    data = {k: torch.from_numpy(v)[None].float().to(device)
+            for k, v in data.items()}
+
+    # some matchers might expect an image but only use its size
+    data['image0'] = torch.empty((1, 1,)+tuple(feats0['image_size'])[::-1])
+    data['image1'] = torch.empty((1, 1,)+tuple(feats1['image_size'])[::-1])
+
+    pred = model(data)
+    matches = pred['matches0'][0].cpu().short().numpy()
+    scores = pred['matching_scores0'][0].cpu().half().numpy()
+    # if score < min_match_score, set match to invalid
+    matches[ scores < min_match_score ] = -1
+    num_valid = np.count_nonzero(matches > -1)
+    if float(num_valid)/len(matches) > min_valid_ratio:
+        pairs.append((name0, name1))
+        grp = match_file.create_group(pair)
+        grp.create_dataset('matches0', data=matches)
+        grp.create_dataset('matching_scores0', data=scores)
+        matched |= {(name0, name1), (name1, name0)}
+        num_matches_found += 1
+
+    return num_matches_found
+
+
+@torch.no_grad()
+def best_match(conf, global_feature_path, feature_path, match_output_path, query_global_feature_path=None, query_feature_path=None, num_match_required=10, max_try=None,
+               pair_file_path=None, num_seq=False, sample_list=None, sample_list_path=None, min_match_score=0.85, min_valid_ratio=0.09):
     logging.info('Dyn Matching local features with configuration:'
                  f'\n{pprint.pformat(conf)}')
 
 
     assert global_feature_path.exists(), feature_path
     global_feature_file = h5py.File(str(global_feature_path), 'r')
+    if query_global_feature_path is not None:
+        logging.info(f'(Using query_global_feature_path:{query_global_feature_path}')
+        query_global_feature_file = h5py.File(str(query_global_feature_path), 'r')
+    else:
+        query_global_feature_file = global_feature_file
 
     assert feature_path.exists(), feature_path
     feature_file = h5py.File(str(feature_path), 'r')
+    if query_feature_path is not None:
+        logging.info(f'(Using query_feature_path:{query_feature_path}')
+        query_feature_file = h5py.File(str(query_feature_path), 'r')
+    else:
+        query_feature_file = feature_file
 
     match_file = h5py.File(str(match_output_path), 'a')
+
+    if sample_list_path is not None:
+        sample_list = json.load(open(str(sample_list_path, 'r')))
 
     # get all sample names
     if sample_list is not None:
         names = sample_list
+        q_names = names
     else:
         names = []
         global_feature_file.visititems(
@@ -68,6 +122,13 @@ def best_match(conf, global_feature_path, feature_path, match_output_path, num_m
             if isinstance(obj, h5py.Dataset) else None)
         names = list(set(names))
         names.sort()
+        q_names = []
+        query_global_feature_file.visititems(
+            lambda _, obj: q_names.append(obj.parent.name.strip('/'))
+            if isinstance(obj, h5py.Dataset) else None)
+        q_names = list(set(q_names))
+        q_names.sort()
+        print(q_names)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -77,8 +138,12 @@ def best_match(conf, global_feature_path, feature_path, match_output_path, num_m
         return desc
 
     desc = tensor_from_names(names, global_feature_file)
+    if query_global_feature_path is not None:
+        q_desc = tensor_from_names(q_names, query_global_feature_file)
+    else:
+        q_desc = desc
     # descriptors are normalized, dot product indicates how close they are
-    sim = torch.einsum('id,jd->ij', desc, desc)
+    sim = torch.einsum('id,jd->ij', q_desc, desc)
     if max_try is None:
         max_try = len(names)
     topk = torch.topk(sim, max_try, dim=1).indices.cpu().numpy()
@@ -88,45 +153,29 @@ def best_match(conf, global_feature_path, feature_path, match_output_path, num_m
 
     pairs = []
     matched = set()
-    for name0, indices in tqdm(zip(names, topk)):
+    for name0, indices in tqdm(zip(q_names, topk)):
         num_matches_found = 0
+        # try sequential neighbor first
+        if num_seq is not None:
+            name0_at = names.index(name0)
+            begin_from = name0_at - num_seq
+            if begin_from < 0:
+                begin_from = 0
+            for i in range(begin_from, name0_at+num_seq):
+                if i >= len(names):
+                    break
+                name1 = names[i]
+                if name0 != name1:
+                    num_matches_found = do_match(name0, name1, pairs, matched, num_matches_found, model, match_file, feature_file, query_feature_file, min_match_score, min_valid_ratio)
+
+        # then the global retrievel
         for i in indices:
             name1 = names[i]
-            if name0 != name1 :
-                pair = names_to_pair(name0, name1)
+            if query_global_feature_path is not None or name0 != name1:
+                num_matches_found = do_match(name0, name1, pairs, matched, num_matches_found, model, match_file, feature_file, query_feature_file, min_match_score, min_valid_ratio)
+                if num_matches_found >= num_match_required:
+                    break
 
-                # Avoid to recompute duplicates to save time
-                if len({(name0, name1), (name1, name0)} & matched) \
-                   or pair in match_file:
-                    continue
-                data = {}
-                feats0, feats1 = feature_file[name0], feature_file[name1]
-                for k in feats1.keys():
-                    data[k+'0'] = feats0[k].__array__()
-                for k in feats1.keys():
-                    data[k+'1'] = feats1[k].__array__()
-                data = {k: torch.from_numpy(v)[None].float().to(device)
-                        for k, v in data.items()}
-
-                # some matchers might expect an image but only use its size
-                data['image0'] = torch.empty((1, 1,)+tuple(feats0['image_size'])[::-1])
-                data['image1'] = torch.empty((1, 1,)+tuple(feats1['image_size'])[::-1])
-
-                pred = model(data)
-                matches = pred['matches0'][0].cpu().short().numpy()
-                scores = pred['matching_scores0'][0].cpu().half().numpy()
-                # if score < min_match_score, set match to invalid
-                matches[ scores < min_match_score ] = -1
-                num_valid = np.count_nonzero(matches > -1)
-                if float(num_valid)/len(matches) > min_valid_ratio:
-                    pairs.append((name0, name1))
-                    grp = match_file.create_group(pair)
-                    grp.create_dataset('matches0', data=matches)
-                    grp.create_dataset('matching_scores0', data=scores)
-                    matched |= {(name0, name1), (name1, name0)}
-                    num_matches_found += 1
-                    if num_matches_found >= num_match_required:
-                        break
         if num_matches_found < num_match_required:
             logging.warning(f'num match for {name0} found {num_matches_found} less than num_match_required:{num_match_required}')
 
@@ -244,18 +293,23 @@ if __name__ == '__main__':
     parser.add_argument('--best_match', action='store_true')
     parser.add_argument('--global_feature_path', type=Path)
     parser.add_argument('--feature_path', type=Path)
+    parser.add_argument('--query_global_feature_path', type=Path)
+    parser.add_argument('--query_feature_path', type=Path)
     parser.add_argument('--match_output_path', type=Path)
     parser.add_argument('--num_match_required', type=int, default=10)
     parser.add_argument('--max_try', type=int)
+    parser.add_argument('--num_seq', type=int)
     parser.add_argument('--min_match_score', type=float, default=0.85)
     parser.add_argument('--min_valid_ratio', type=float, default=0.09)
+    parser.add_argument('--sample_list_path', type=Path)
     parser.add_argument('--pair_file_path', type=Path)
 
     args = parser.parse_args()
     if args.best_match:
         best_match(confs[args.conf], args.global_feature_path, args.feature_path, args.match_output_path,
+                   query_global_feature_path=args.query_global_feature_path, query_feature_path=args.query_feature_path,
                    num_match_required=args.num_match_required, min_match_score=args.min_match_score, min_valid_ratio=args.min_valid_ratio,
-                   max_try=args.max_try, pair_file_path=args.pair_file_path)
+                   max_try=args.max_try, num_seq=args.num_seq, sample_list_path=args.sample_list_path, pair_file_path=args.pair_file_path)
     else:
         main(
             confs[args.conf], args.pairs, args.features,args.export_dir,
