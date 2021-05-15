@@ -157,13 +157,16 @@ def visualize_loc(results, image_dir, db_image_dir=None, sfm_model=None, top_k_d
                 0.01, 0.01, db_name, transform=fig.axes[1].transAxes,
                 fontsize=5, va='bottom', ha='left', color='w')
 
-def visualize_match(image_dir, match_file, feat_file, num=10, image_suffix='.png', selected=None, seed=0, dpi=75):
+def visualize_match(image_dir, match_file, feat1_file, feat2_file=None, num=10, image_suffix='.png', selected=None, seed=0, dpi=75):
     assert image_dir.exists()
 
     match_db = h5py.File(match_file, 'r')
     matched_pairs = match_db.keys()
-    feat_db = h5py.File(feat_file, 'r')
-
+    feat1_db = h5py.File(feat1_file, 'r')
+    if feat2_file is not None:
+        feat2_db = h5py.File(feat2_file, 'r')
+    else:
+        feat2_db = feat1_db
     if not selected:
         if num > len(matched_pairs):
             num = len(matched_pairs)
@@ -183,8 +186,8 @@ def visualize_match(image_dir, match_file, feat_file, num=10, image_suffix='.png
         matches = match_item['matches0'][()]
         matching_score = match_item['matching_scores0'][()]
 
-        kpts0 = feat_db[f0]['keypoints'][()]
-        kpts1 = feat_db[f1]['keypoints'][()]
+        kpts0 = feat1_db[f0]['keypoints'][()]
+        kpts1 = feat2_db[f1]['keypoints'][()]
 
         valid = matches > -1
         mkpts0 = kpts0[valid]
