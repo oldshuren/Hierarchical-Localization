@@ -50,8 +50,7 @@ def do_match (name0, name1, pairs, matched, num_matches_found, model, match_file
     pair = names_to_pair(name0, name1)
 
     # Avoid to recompute duplicates to save time
-    #if len({(name0, name1), (name1, name0)} & matched) or pair in match_file:
-    if pair in match_file:
+    if len({(name0, name1), (name1, name0)} & matched) or pair in match_file:
         return num_matches_found
     data = {}
     feats0, feats1 = query_feature_file[name0], feature_file[name1]
@@ -73,7 +72,11 @@ def do_match (name0, name1, pairs, matched, num_matches_found, model, match_file
     matches[ scores < min_match_score ] = -1
     num_valid = np.count_nonzero(matches > -1)
     if float(num_valid)/len(matches) > min_valid_ratio:
-        pairs.append((name0, name1))
+        v = pairs.get(name0)
+        if v is None:
+            v = set(())
+        v.add(name1)
+        pairs[name0] = v
         grp = match_file.create_group(pair)
         grp.create_dataset('matches0', data=matches)
         grp.create_dataset('matching_scores0', data=scores)
@@ -84,8 +87,8 @@ def do_match (name0, name1, pairs, matched, num_matches_found, model, match_file
 
 
 @torch.no_grad()
-def best_match(conf, global_feature_path, feature_path, match_output_path, query_global_feature_path=None, query_feature_path=None, num_match_required=10, max_try=None,
-               pair_file_path=None, num_seq=False, sample_list=None, sample_list_path=None, min_match_score=0.85, min_valid_ratio=0.09):
+def best_match(conf, global_feature_path, feature_path, match_output_path, query_global_feature_path=None, query_feature_path=None, num_match_required=10,
+               max_try=None, min_matched=None, pair_file_path=None, num_seq=False, sample_list=None, sample_list_path=None, min_match_score=0.85, min_valid_ratio=0.09):
     logging.info('Dyn Matching local features with configuration:'
                  f'\n{pprint.pformat(conf)}')
 
@@ -128,7 +131,6 @@ def best_match(conf, global_feature_path, feature_path, match_output_path, query
             if isinstance(obj, h5py.Dataset) else None)
         q_names = list(set(q_names))
         q_names.sort()
-        print(q_names)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -151,7 +153,7 @@ def best_match(conf, global_feature_path, feature_path, match_output_path, query
     Model = dynamic_load(matchers, conf['model']['name'])
     model = Model(conf['model']).eval().to(device)
 
-    pairs = []
+    pairs = {}
     matched = set()
     for name0, indices in tqdm(zip(q_names, topk)):
         num_matches_found = 0
@@ -181,8 +183,14 @@ def best_match(conf, global_feature_path, feature_path, match_output_path, query
 
     match_file.close()
     if pair_file_path is not None:
+        if min_matched is not None:
+            pairs = {k:v for k,v in pairs.items() if len(v) >= min_matched }
+        pairs_list = []
+        for n0 in pairs.keys():
+            for n1 in pairs.get(n0):
+                pairs_list.append((n0,n1))
         with open(str(pair_file_path), 'w') as f:
-            f.write('\n'.join(' '.join([i, j]) for i, j in pairs))
+            f.write('\n'.join(' '.join([i, j]) for i, j in pairs_list))
     logging.info('Finished exporting matches.')
 
 @torch.no_grad()
@@ -297,6 +305,7 @@ if __name__ == '__main__':
     parser.add_argument('--query_feature_path', type=Path)
     parser.add_argument('--match_output_path', type=Path)
     parser.add_argument('--num_match_required', type=int, default=10)
+    parser.add_argument('--min_matched', type=int, default=1)
     parser.add_argument('--max_try', type=int)
     parser.add_argument('--num_seq', type=int)
     parser.add_argument('--min_match_score', type=float, default=0.85)
@@ -308,7 +317,7 @@ if __name__ == '__main__':
     if args.best_match:
         best_match(confs[args.conf], args.global_feature_path, args.feature_path, args.match_output_path,
                    query_global_feature_path=args.query_global_feature_path, query_feature_path=args.query_feature_path,
-                   num_match_required=args.num_match_required, min_match_score=args.min_match_score, min_valid_ratio=args.min_valid_ratio,
+                   num_match_required=args.num_match_required, min_matched=args.min_matched, min_match_score=args.min_match_score, min_valid_ratio=args.min_valid_ratio,
                    max_try=args.max_try, num_seq=args.num_seq, sample_list_path=args.sample_list_path, pair_file_path=args.pair_file_path)
     else:
         main(
