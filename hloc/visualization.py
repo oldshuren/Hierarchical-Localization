@@ -8,6 +8,7 @@ import h5py
 
 from .utils.read_write_model import read_images_binary, read_points3d_binary
 from .utils.viz import plot_images, plot_keypoints, plot_matches, cm_RdGn
+from .utils.parsers import names_to_pair
 
 
 def read_image(path):
@@ -157,22 +158,29 @@ def visualize_loc(results, image_dir, db_image_dir=None, sfm_model=None, top_k_d
                 0.01, 0.01, db_name, transform=fig.axes[1].transAxes,
                 fontsize=5, va='bottom', ha='left', color='w')
 
-def visualize_match(image_dir, match_file, feat1_file, feat2_file=None, num=10, image_suffix='.png', selected=None, seed=0, dpi=75):
+def visualize_match(image_dir, match_file, feat1_file, feat2_file=None, pairs=None, num=None, image_suffix='.png', selected=None, seed=0, dpi=75):
     assert image_dir.exists()
 
     match_db = h5py.File(match_file, 'r')
-    matched_pairs = match_db.keys()
+    if pairs:
+        with open(pairs, 'r') as f:
+            pair_list = [p.split(' ') for p in f.read().split('\n')]
+            matched_pairs = [names_to_pair(i[0], i[1]) for i in pair_list if len(i) == 2 ]
+    else:
+        matched_pairs = match_db.keys()
     feat1_db = h5py.File(feat1_file, 'r')
     if feat2_file is not None:
         feat2_db = h5py.File(feat2_file, 'r')
     else:
         feat2_db = feat1_db
+    if num is None:
+        num = len(matched_pairs)
     if not selected:
         if num > len(matched_pairs):
             num = len(matched_pairs)
         matches_to_vis = random.Random(seed).sample(matched_pairs, num)
     else:
-        matches_to_vis = [x for x in matched_pairs if x.startswith(selected)]
+        matches_to_vis = [x for x in matched_pairs if selected in x]
 
     # speed matched pairs to two image
     for k in matches_to_vis:
