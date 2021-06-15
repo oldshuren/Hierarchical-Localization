@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 import torch
 from tqdm import tqdm
+from signal import signal, SIGINT
 
 from . import matchers
 from .utils.base_model import dynamic_load
@@ -81,6 +82,13 @@ def do_match (name0, name1, pairs, matched, num_matches_found, model, match_file
             num_matches_found += 1
     return num_matches_found
 
+done_match = False
+def handler(signal_received, frame):
+    global done_match
+    # Handle any cleanup here
+    print('SIGINT or CTRL-C detected. Exiting gracefully')
+    done_match = True
+
 @torch.no_grad()
 def main(conf, desc1, desc2, feat1, feat2, num_matched, match_output, pair_output=None, min_match_score=0.85, min_valid_ratio=0.2):
     hfile1 = h5py.File(str(desc1), 'r')
@@ -129,6 +137,9 @@ def main(conf, desc1, desc2, feat1, feat2, num_matched, match_output, pair_outpu
         print (f'num_matches_found {num_matches_found}')
         if num_matches_found >= num_matched:
             break
+        if done_match:
+            break
+
     match_file.close()
     s1=set(())
     s2=set(())
