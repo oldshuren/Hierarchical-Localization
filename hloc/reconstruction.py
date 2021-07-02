@@ -21,7 +21,7 @@ def create_empty_db(database_path):
 
 
 def import_images(colmap_path, sfm_dir, image_dir, database_path,
-                  single_camera=False):
+                  single_camera=False, remove_features=True):
     logging.info('Importing images into the database...')
     images = list(image_dir.iterdir())
     if len(images) == 0:
@@ -46,11 +46,13 @@ def import_images(colmap_path, sfm_dir, image_dir, database_path,
         logging.warning('Problem with feature_importer, exiting.')
         exit(ret)
 
-    db = COLMAPDatabase.connect(database_path)
-    db.execute("DELETE FROM keypoints;")
-    db.execute("DELETE FROM descriptors;")
-    db.commit()
-    db.close()
+    if remove_features:
+        db = COLMAPDatabase.connect(database_path)
+        db.execute("DELETE FROM keypoints;")
+        db.execute("DELETE FROM descriptors;")
+        db.commit()
+        db.close()
+
     shutil.rmtree(str(dummy_dir))
 
 
@@ -64,7 +66,7 @@ def get_image_ids(database_path):
 
 
 def run_reconstruction(colmap_path, model_path, database_path, image_dir,
-                       use_pba=False, min_num_matches=None):
+                       input_model=None, use_pba=False, min_num_matches=None, ):
     logging.info('Running the 3D reconstruction...')
     model_path.mkdir(exist_ok=True)
 
@@ -74,6 +76,8 @@ def run_reconstruction(colmap_path, model_path, database_path, image_dir,
         '--image_path', str(image_dir),
         '--output_path', str(model_path),
         '--Mapper.num_threads', str(min(multiprocessing.cpu_count(), 16))]
+    if input_model:
+        cmd += ['--input_path', str(input_model)]
     if min_num_matches:
         cmd += ['--Mapper.min_num_matches', str(min_num_matches)]
     if use_pba:
@@ -84,22 +88,25 @@ def run_reconstruction(colmap_path, model_path, database_path, image_dir,
         logging.warning('Problem with mapper, exiting.')
         exit(ret)
 
-    models = list(model_path.iterdir())
-    if len(models) == 0:
-        logging.error('Could not reconstruct any model!')
-        return False
-    logging.info(f'Reconstructed {len(models)} models.')
+    if input_model is not None:
+        largest_model = model_path
+    else:
+        models = list(model_path.iterdir())
+        if len(models) == 0:
+            logging.error('Could not reconstruct any model!')
+            return False
+        logging.info(f'Reconstructed {len(models)} models.')
 
-    largest_model = None
-    largest_model_num_images = 0
-    for model in models:
-        num_images = len(read_cameras_binary(str(model / 'cameras.bin')))
-        if num_images > largest_model_num_images:
-            largest_model = model
-            largest_model_num_images = num_images
-    assert largest_model_num_images > 0
-    logging.info(f'Largest model is #{largest_model.name} '
-                 'with {largest_model_num_images} images.')
+        largest_model = None
+        largest_model_num_images = 0
+        for model in models:
+            num_images = len(read_cameras_binary(str(model / 'cameras.bin')))
+            if num_images > largest_model_num_images:
+                largest_model = model
+                largest_model_num_images = num_images
+        assert largest_model_num_images > 0
+        logging.info(f'Largest model is #{largest_model.name} '
+                     'with {largest_model_num_images} images.')
 
     stats_raw = subprocess.check_output(
         [str(colmap_path), 'model_analyzer',
@@ -122,6 +129,44 @@ def run_reconstruction(colmap_path, model_path, database_path, image_dir,
 
     return stats
 
+def add_images(sfm_dir, input_model, output_models, image_dir, pairs, features, matches,
+               added_images_is_2nd_in_pairs=True,
+               colmap_path='colmap', single_camera=False,
+               skip_geometric_verification=False,
+               use_pba=False,
+               min_match_score=None, min_num_matches=None):
+
+    assert features.exists(), features
+    assert pairs.exists(), pairs
+    assert matches.exists(), matches
+
+    output_models.mkdir(exist_ok=True)
+
+    database = sfm_dir / 'database.db'
+    with open(str(pairs), 'r') as f:
+        pairs = [p.split(' ') for p in f.read().split('\n')]
+
+    import_images(
+        colmap_path, sfm_dir, image_dir, database, single_camera=single_camera, remove_features=False)
+    all_image_ids = get_image_ids(database)
+
+    added_image_ids = {}
+    paired_image_ids = {}
+    for name0, name1 in pairs:
+        id0, id1 = image_ids[name0], image_ids[name1]
+        if added_images_is_2nd_in_pairs:
+            added_image_ids[name1] = id1
+        else:
+            added_image_ids[name0] = id0
+    import_features(added_image_ids, database, features, use_replace=True)
+    import_matches(all_image_ids, database, pairs, matches,
+                   min_match_score, skip_geometric_verification)
+    if not skip_geometric_verification:
+        geometric_verification(colmap_path, database, pairs)
+    stats = run_reconstruction(
+        colmap_path, output_models, database, image_dir, input_model=input_model, use_pba=use_pba, min_num_matches=min_num_matches)
+    stats['num_input_images'] = len(image_ids)
+    logging.info(f'Statistics:\n{pprint.pformat(stats)}')
 
 def main(sfm_dir, image_dir, pairs, features, matches,
          colmap_path='colmap', single_camera=False,
@@ -140,7 +185,7 @@ def main(sfm_dir, image_dir, pairs, features, matches,
 
     create_empty_db(database)
     import_images(
-        colmap_path, sfm_dir, image_dir, database, single_camera)
+        colmap_path, sfm_dir, image_dir, database, single_camera=single_camera)
     image_ids = get_image_ids(database)
     import_features(image_ids, database, features)
     import_matches(image_ids, database, pairs, matches,
