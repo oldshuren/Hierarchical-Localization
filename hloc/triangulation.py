@@ -37,7 +37,7 @@ def create_db_from_model(empty_model, database_path):
     return {image.name: i for i, image in images.items()}
 
 
-def import_features(image_ids, database_path, features_path):
+def import_features(image_ids, database_path, features_path, use_replace=False):
     logging.info('Importing features into the database...')
     hfile = h5py.File(str(features_path), 'r')
     db = COLMAPDatabase.connect(database_path)
@@ -45,7 +45,7 @@ def import_features(image_ids, database_path, features_path):
     for image_name, image_id in tqdm(image_ids.items()):
         keypoints = hfile[image_name]['keypoints'].__array__()
         keypoints += 0.5  # COLMAP origin
-        db.add_keypoints(image_id, keypoints)
+        db.add_keypoints(image_id, keypoints, use_replace=use_replace)
 
     hfile.close()
     db.commit()
