@@ -158,7 +158,7 @@ def visualize_loc(results, image_dir, db_image_dir=None, sfm_model=None, top_k_d
                 0.01, 0.01, db_name, transform=fig.axes[1].transAxes,
                 fontsize=5, va='bottom', ha='left', color='w')
 
-def visualize_match(image_dir, match_file, feat1_file, feat2_file=None, pairs=None, num=None, image_suffix='.png', selected=None, seed=0, dpi=75):
+def visualize_match(image_dir, match_file, feat1_file, image_dir2=None, feat2_file=None, pairs=None, num=None, image_suffix='.png', selected=None, seed=0, dpi=75):
     assert image_dir.exists()
 
     match_db = h5py.File(match_file, 'r')
@@ -168,6 +168,8 @@ def visualize_match(image_dir, match_file, feat1_file, feat2_file=None, pairs=No
             matched_pairs = [names_to_pair(i[0], i[1]) for i in pair_list if len(i) == 2 ]
     else:
         matched_pairs = match_db.keys()
+    if image_dir2 is None:
+        image_dir2 = image_dir
     feat1_db = h5py.File(feat1_file, 'r')
     if feat2_file is not None:
         feat2_db = h5py.File(feat2_file, 'r')
@@ -188,7 +190,7 @@ def visualize_match(image_dir, match_file, feat1_file, feat2_file=None, pairs=No
         f1 = k.split(image_suffix+'_')[1]
 
         image0 = read_image(image_dir / f0)
-        image1 = read_image(image_dir / f1)
+        image1 = read_image(image_dir2 / f1)
 
         match_item =  match_db[k]
         matches = match_item['matches0'][()]
