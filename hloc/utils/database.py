@@ -178,13 +178,17 @@ class COLMAPDatabase(sqlite3.Connection):
              prior_q[3], prior_t[0], prior_t[1], prior_t[2]))
         return cursor.lastrowid
 
-    def add_keypoints(self, image_id, keypoints):
+    def add_keypoints(self, image_id, keypoints, use_replace=False):
         assert(len(keypoints.shape) == 2)
         assert(keypoints.shape[1] in [2, 4, 6])
 
         keypoints = np.asarray(keypoints, np.float32)
+        if use_replace:
+            action = "REPLACE"
+        else:
+            action = "INSERT"
         self.execute(
-            "INSERT INTO keypoints VALUES (?, ?, ?, ?)",
+            f"{action} INTO keypoints VALUES (?, ?, ?, ?)",
             (image_id,) + keypoints.shape + (array_to_blob(keypoints),))
 
     def add_descriptors(self, image_id, descriptors):
