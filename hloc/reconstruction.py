@@ -129,7 +129,7 @@ def run_reconstruction(colmap_path, model_path, database_path, image_dir,
 
     return stats
 
-def add_images(sfm_dir, input_model, output_models, image_dir, pairs, features, matches,
+def add_images(sfm_dir, input_model, output_model, image_dir, pairs_path, features, matches,
                added_images_is_2nd_in_pairs=True,
                colmap_path='colmap', single_camera=False,
                skip_geometric_verification=False,
@@ -137,34 +137,38 @@ def add_images(sfm_dir, input_model, output_models, image_dir, pairs, features, 
                min_match_score=None, min_num_matches=None):
 
     assert features.exists(), features
-    assert pairs.exists(), pairs
+    assert pairs_path.exists(), pairs_path
     assert matches.exists(), matches
 
-    output_models.mkdir(exist_ok=True)
+    output_model.mkdir(exist_ok=True)
 
     database = sfm_dir / 'database.db'
-    with open(str(pairs), 'r') as f:
-        pairs = [p.split(' ') for p in f.read().split('\n')]
+    assert database.exists(), database
+
+    #save a backup data base
+    shutil.copy(str(database), f'{str(database)}-backup')
+
+    with open(str(pairs_path), 'r') as f:
+        image_pairs = [p.split(' ') for p in f.read().split('\n')]
 
     import_images(
         colmap_path, sfm_dir, image_dir, database, single_camera=single_camera, remove_features=False)
-    all_image_ids = get_image_ids(database)
+    image_ids = get_image_ids(database)
 
     added_image_ids = {}
-    paired_image_ids = {}
-    for name0, name1 in pairs:
+    for name0, name1 in image_pairs:
         id0, id1 = image_ids[name0], image_ids[name1]
         if added_images_is_2nd_in_pairs:
             added_image_ids[name1] = id1
         else:
             added_image_ids[name0] = id0
     import_features(added_image_ids, database, features, use_replace=True)
-    import_matches(all_image_ids, database, pairs, matches,
+    import_matches(image_ids, database, pairs_path, matches,
                    min_match_score, skip_geometric_verification)
     if not skip_geometric_verification:
-        geometric_verification(colmap_path, database, pairs)
+        geometric_verification(colmap_path, database, pairs_path)
     stats = run_reconstruction(
-        colmap_path, output_models, database, image_dir, input_model=input_model, use_pba=use_pba, min_num_matches=min_num_matches)
+        colmap_path, output_model, database, image_dir, input_model=input_model, use_pba=use_pba, min_num_matches=min_num_matches)
     stats['num_input_images'] = len(image_ids)
     logging.info(f'Statistics:\n{pprint.pformat(stats)}')
 
@@ -215,6 +219,28 @@ if __name__ == '__main__':
     parser.add_argument('--skip_geometric_verification', action='store_true')
     parser.add_argument('--min_match_score', type=float)
     parser.add_argument('--min_num_matches', type=int)
+
+    parser.add_argument('--add_images', action='store_true')
+    parser.add_argument('--input_model', type=Path)
+    parser.add_argument('--output_model', type=Path)
+    parser.add_argument('--added_images_is_2nd_in_pairs', action='store_true')
+
     args = parser.parse_args()
 
-    main(**args.__dict__)
+    if args.add_images:
+        add_images(args.sfm_dir, args.input_model, args.output_model,
+                   args.image_dir, args.pairs, args.features, args.matches,
+                   added_images_is_2nd_in_pairs=args.added_images_is_2nd_in_pairs,
+                   single_camera=args.single_camera,
+                   skip_geometric_verification=args.skip_geometric_verification,
+                   colmap_path=args.colmap_path,
+                   use_pba=args.use_pba,
+                   min_match_score=args.min_match_score,
+                   min_num_matches=args.min_num_matches)
+    else:
+        main(args.sfm_dir, args.image_dir, args.pairs, args.features, args.matches,
+             colmap_path=args.colmap_path, single_camera=args.single_camera,
+             skip_geometric_verification=args.skip_geometric_verification,
+             use_pba=args.use_pba,
+             min_match_score=args.min_match_score,
+             min_num_matches=args.min_num_matches)
